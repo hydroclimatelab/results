@@ -1,14 +1,14 @@
-Here is the updated web dashboard. To achieve explicit, local zoom control per city, I have introduced a `locationConfig` dictionary in the JavaScript.
-
-Because HTML5 Canvas `putImageData()` does not respect scaling by default, the script now renders the raw WRF grid to a hidden "off-screen" canvas first. It then draws that data onto the main visible canvas, applying the specific zoom multiplier assigned to that city.
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WRF Domain 3 Visualization Dashboard</title>
+    
+    <!-- Leaflet CSS & JS for Open Source Basemaps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
     <style>
         :root {
             --bg-color: #111827;
@@ -34,80 +34,112 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             overflow: hidden;
         }
 
-        .top-bar {
-            background-color: var(--panel-color);
-            border-bottom: 1px solid var(--border-color);
-            padding: 0.75rem 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            z-index: 10;
-        }
-
-        .brand-title {
+        .sidebar-title {
             font-size: 1.25rem;
             font-weight: 600;
             letter-spacing: -0.025em;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 0.5rem;
+            text-align: center;
         }
 
-        .controls-group {
-            display: flex;
-            gap: 1rem;
-            align-items: center;
-        }
-
-        select {
-            background-color: var(--bg-color);
+        .city-select {
+            background-color: #374151;
             color: var(--text-color);
-            border: 1px solid var(--border-color);
-            padding: 0.5rem 2rem 0.5rem 0.75rem;
-            border-radius: 0.375rem;
-            font-size: 0.875rem;
+            border: 1px solid #4b5563;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.95rem;
+            font-weight: 500;
             cursor: pointer;
             outline: none;
+            width: 100%;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=US-ASCII,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 5'%3E%3Cpath fill='%239ca3af' d='M2 0L0 2h4zm0 5L0 3h4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.75rem center;
+            background-size: 8px 10px;
         }
 
-        select:focus {
+        .city-select:focus {
             border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
         }
 
         .main-container {
             flex: 1;
-            position: relative;
             display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 2rem;
-            background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
-            overflow: auto; /* Allows scrolling if the zoomed canvas is larger than the screen */
+            flex-direction: row;
+            padding: 1.5rem;
+            gap: 1.5rem;
+            background: var(--bg-color);
+            overflow: hidden;
         }
 
-        #gridCanvas {
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        .sidebar-left {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            width: 220px;
+            z-index: 10;
+        }
+
+        .var-btn {
+            background-color: var(--panel-color);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
             border-radius: 0.5rem;
-            background-color: #000;
-            /* Forces the browser to keep the upscaled pixels sharp instead of blurring them */
-            image-rendering: pixelated; 
+            font-size: 0.9rem;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .var-btn:hover {
+            border-color: #6b7280;
+        }
+
+        .var-btn.active {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+            font-weight: bold;
+        }
+
+        .map-wrapper {
+            flex: 1;
+            position: relative;
+            border-radius: 1rem;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+            z-index: 1;
         }
 
         .colorbar-container {
-            position: absolute;
-            right: 1.5rem;
-            top: 1.5rem;
-            background-color: rgba(31, 41, 55, 0.85);
-            backdrop-filter: blur(8px);
+            background-color: var(--panel-color);
             border: 1px solid var(--border-color);
-            padding: 0.75rem;
-            border-radius: 0.5rem;
+            padding: 1.5rem 1rem;
+            border-radius: 1rem;
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 0.5rem;
+            gap: 1rem;
+            z-index: 10;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+            min-width: 90px;
         }
 
         .colorbar-gradient {
             width: 25px;
-            height: 200px;
+            height: 100%;
             background: linear-gradient(to top, #0000ff, #00ffff, #00ff00, #ffff00, #ff0000);
             border-radius: 0.25rem;
         }
@@ -116,7 +148,7 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             display: flex;
             flex-direction: column;
             justify-content: space-between;
-            height: 200px;
+            height: 100%;
             font-size: 0.75rem;
             font-family: monospace;
         }
@@ -124,15 +156,22 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
         .colorbar-layout {
             display: flex;
             gap: 0.5rem;
+            flex: 1; /* Allows the layout to take up remaining height */
         }
 
-        .bottom-bar {
-            background-color: var(--panel-color);
-            border-top: 1px solid var(--border-color);
+        .map-timeline-overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: rgba(50, 52, 53, 0.85);
+            backdrop-filter: blur(4px);
             padding: 1rem 1.5rem;
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
+            z-index: 1000;
+            border-top: 1px solid var(--border-color);
         }
 
         .timeline-controls {
@@ -181,7 +220,7 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             font-family: monospace;
             font-size: 0.95rem;
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-end;
             color: #9ca3af;
         }
 
@@ -206,29 +245,37 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
 </head>
 <body>
 
-    <header class="top-bar">
-        <div class="brand-title">WRF 1km Mesh Viewer</div>
-        <div class="controls-group">
-            <select id="varSelect">
-                <option value="temperature">Temperature (°C)</option>
-                <option value="precipitation">Precipitation (mm)</option>
-                <option value="wind_speed">Wind Speed (m/s)</option>
-                <option value="specific_humidity">Specific Humidity (kg/kg)</option>
-            </select>
-            
-            <select id="locationSelect">
-                <option value="kharagpur_d03.json">Kharagpur Region</option>
-                <option value="kolkata_d03.json">Kolkata Region</option>
-            </select>
-        </div>
-    </header>
-
     <main class="main-container">
-        <div id="loading" class="loading-overlay">Loading meteorological grid data...</div>
-        <canvas id="gridCanvas"></canvas>
+        <div class="sidebar-left">
+            <div class="sidebar-title">Weather Forecast</div>
+            <button class="var-btn active" data-var="temperature">Temperature (°C)</button>
+            <button class="var-btn" data-var="precipitation">Precipitation (mm)</button>
+            <button class="var-btn" data-var="wind_speed">Wind Speed (m/s)</button>
+            <button class="var-btn" data-var="specific_humidity">Specific Hum. (kg/kg)</button>
+        </div>
+
+        <div class="map-wrapper">
+            <div id="loading" class="loading-overlay">Loading meteorological grid data...</div>
+            <div id="map"></div>
+            <div class="map-timeline-overlay">
+                <div class="timeline-controls">
+                    <button id="playBtn" class="btn-playback">Play</button>
+                    <input type="range" id="timelineSlider" class="slider-timeline" min="0" max="0" value="0">
+                </div>
+                <div class="time-display">
+                    <!-- <div>Frame: <span id="frameCounter">0/0</span></div> -->
+                    <!-- <div id="mapInfo" style="font-size: 0.85rem; color: #9ca3af; text-align: center; font-weight: normal;">Zoom: - | Extent: -</div> -->
+                    <div>Time (IST): <span id="timeStringIST" class="ist-highlight">--:--:--</span></div>
+                </div>
+            </div>
+        </div>
 
         <div class="colorbar-container">
-            <span id="colorbarTitle" style="font-size: 0.8rem; font-weight: 500;">Unit</span>
+            <select id="locationSelect" class="city-select">
+                <option value="kharagpur_d03.json">Kharagpur</option>
+                <option value="kolkata_d03.json">Kolkata</option>
+            </select>
+            <span id="colorbarTitle" style="font-size: 0.8rem; font-weight: 500; text-align: center;">Unit</span>
             <div class="colorbar-layout">
                 <div class="colorbar-gradient"></div>
                 <div class="colorbar-labels">
@@ -237,28 +284,29 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
                     <span id="valMin">0.0</span>
                 </div>
             </div>
+            <button id="toggleFreezeBtn" class="var-btn" style="width: 100%; padding: 0.5rem; text-align: center;">Unlock Map</button>
         </div>
     </main>
 
-    <footer class="bottom-bar">
-        <div class="timeline-controls">
-            <button id="playBtn" class="btn-playback">Play</button>
-            <input type="range" id="timelineSlider" class="slider-timeline" min="0" max="0" value="0">
-        </div>
-        <div class="time-display">
-            <div>Frame: <span id="frameCounter">0/0</span></div>
-            <div>Time (IST): <span id="timeStringIST" class="ist-highlight">--:--:--</span></div>
-        </div>
-    </footer>
-
     <script>
         // ==========================================
-        // EXPLICIT LOCAL ZOOM CONFIGURATION
+        // GEOSPATIAL MAP CONFIGURATION
         // ==========================================
-        // Adjust the zoom multiplier here to locally scale the rendered grid
+        // Replace these placeholder boundaries with the actual Lat/Lon boundaries of your WRF domains.
+        // Format: [[South, West], [North, East]]
         const locationConfig = {
-            "kharagpur_d03.json": { zoomMultiplier: 4 }, // Example: Scale Kharagpur up 4x
-            "kolkata_d03.json": { zoomMultiplier: 6 }    // Example: Scale Kolkata up 6x
+            "kharagpur_d03.json": { 
+                dataBounds: [[22.30247, 87.27038], [22.35525, 87.33329]],
+                viewBounds: [[22.29855, 87.25539], [22.35254, 87.34826]],
+                zoom: 14,
+                shapefile: "kharagpur.geojson"
+            },
+            "kolkata_d03.json": { 
+                dataBounds: [[22.418, 88.1542], [22.7585, 88.56]],
+                viewBounds: [[22.41865, 88.18005], [22.63429, 88.55152]],
+                zoom: 12,
+                shapefile: "kolkata.geojson"
+            }
         };
 
         let currentDataset = null;
@@ -267,21 +315,26 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
         let animationInterval = null;
         let globalMin = 0;
         let globalMax = 1;
+        let map = null;
+        let currentOverlay = null;
+        let currentGeojsonLayer = null;
+        let currentBounds = null;
+        let currentVariable = 'temperature';
+        let isMapFrozen = true;
 
         const locationSelect = document.getElementById('locationSelect');
-        const varSelect = document.getElementById('varSelect');
-        const canvas = document.getElementById('gridCanvas');
-        const ctx = canvas.getContext('2d');
         const playBtn = document.getElementById('playBtn');
         const slider = document.getElementById('timelineSlider');
-        const frameCounter = document.getElementById('frameCounter');
+        // const frameCounter = document.getElementById('frameCounter');
         const timeStringIST = document.getElementById('timeStringIST');
+        // const mapInfo = document.getElementById('mapInfo');
         const loading = document.getElementById('loading');
         
         const valMaxLabel = document.getElementById('valMax');
         const valMidLabel = document.getElementById('valMid');
         const valMinLabel = document.getElementById('valMin');
         const colorbarTitle = document.getElementById('colorbarTitle');
+        const toggleFreezeBtn = document.getElementById('toggleFreezeBtn');
 
         function getColorForValue(value, min, max) {
             let norm = (value - min) / (max - min || 1);
@@ -350,20 +403,7 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             
             const baseWidth = currentDataset.metadata.grid_dimensions.width;
             const baseHeight = currentDataset.metadata.grid_dimensions.height;
-            const activeVar = varSelect.value;
-            const currentFile = locationSelect.value;
-            
-            // Retrieve explicit zoom for current location (fallback to 1x if missing)
-            const zoom = locationConfig[currentFile]?.zoomMultiplier || 1;
-            
-            const targetWidth = baseWidth * zoom;
-            const targetHeight = baseHeight * zoom;
-            
-            // Resize actual visible canvas to accommodate the zoomed dimensions
-            if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-                canvas.width = targetWidth;
-                canvas.height = targetHeight;
-            }
+            const activeVar = currentVariable;
 
             const frameData = currentDataset.timesteps[currentFrame];
             const dataArray = frameData.data[activeVar];
@@ -399,20 +439,99 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             // 2. Put raw 1:1 data into the off-screen canvas
             offCtx.putImageData(imgData, 0, 0);
 
-            // 3. Draw and scale onto the main visible canvas
-            // imageSmoothingEnabled = false ensures the blocks stay crisp instead of blurry when scaled up
-            ctx.imageSmoothingEnabled = false; 
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(offscreenCanvas, 0, 0, targetWidth, targetHeight);
+            // 3. Convert off-screen canvas to a Data URL and update Leaflet Image Overlay
+            const dataUrl = offscreenCanvas.toDataURL();
+            if (currentOverlay) {
+                currentOverlay.setUrl(dataUrl);
+            } else if (currentBounds) {
+                currentOverlay = L.imageOverlay(dataUrl, currentBounds, { opacity: 0.65, interactive: false }).addTo(map);
+            }
 
             slider.value = currentFrame;
-            frameCounter.innerText = `${currentFrame + 1} / ${currentDataset.metadata.total_timesteps}`;
+            // frameCounter.innerText = `${currentFrame + 1} / ${currentDataset.metadata.total_timesteps}`;
             timeStringIST.innerText = formatToIST(frameData.time);
+        }
+
+        function updateMapInfo() {
+            if (!map) return;
+            const bounds = map.getBounds();
+            const zoom = map.getZoom();
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
+            // mapInfo.innerText = `Zoom: ${zoom} | Bounds: [[${sw.lat.toFixed(5)}, ${sw.lng.toFixed(5)}], [${ne.lat.toFixed(5)}, ${ne.lng.toFixed(5)}]]`;
+        }
+
+        function applyMapState() {
+            if (!map) return;
+            const config = locationConfig[locationSelect.value];
+            if (!config) return;
+
+            const viewBoundsObj = L.latLngBounds(config.viewBounds);
+
+            if (isMapFrozen) {
+                map.setMinZoom(0);
+                map.setMaxZoom(18);
+                map.setMaxBounds(null);
+
+                map.setView(viewBoundsObj.getCenter(), config.zoom);
+                map.setMinZoom(config.zoom);
+                map.setMaxZoom(config.zoom);
+                map.setMaxBounds(viewBoundsObj);
+                
+                map.dragging.disable();
+                map.touchZoom.disable();
+                map.doubleClickZoom.disable();
+                map.scrollWheelZoom.disable();
+                
+                toggleFreezeBtn.innerText = "Unlock Map";
+                toggleFreezeBtn.classList.remove('active');
+            } else {
+                map.setMinZoom(0);
+                map.setMaxZoom(18);
+                map.setMaxBounds(null);
+                
+                map.dragging.enable();
+                map.touchZoom.enable();
+                map.doubleClickZoom.enable();
+                map.scrollWheelZoom.enable();
+                
+                toggleFreezeBtn.innerText = "Lock Map";
+                toggleFreezeBtn.classList.add('active'); // Visually highlight when unlocked
+            }
+            updateMapInfo();
         }
 
         async function loadLocationData(jsonPath) {
             loading.classList.remove('hidden');
             try {
+                const config = locationConfig[jsonPath];
+                if (config && map) {
+                    currentBounds = config.dataBounds;
+                    applyMapState();
+
+                    if (currentGeojsonLayer) {
+                        map.removeLayer(currentGeojsonLayer);
+                        currentGeojsonLayer = null;
+                    }
+                    
+                    if (config.shapefile) {
+                        fetch(config.shapefile)
+                            .then(res => res.ok ? res.json() : null)
+                            .then(data => {
+                                if (data) {
+                                    currentGeojsonLayer = L.geoJSON(data, {
+                                        style: { color: '#000000', weight: 2, fillOpacity: 0 }
+                                    }).addTo(map);
+                                }
+                            })
+                            .catch(err => console.warn("Failed to load shapefile overlay:", err));
+                    }
+                }
+                if (currentOverlay && map) {
+                    map.removeLayer(currentOverlay);
+                    currentOverlay = null;
+                }
+
                 const response = await fetch(jsonPath);
                 if (!response.ok) throw new Error(`HTTP error status: ${response.status}`);
                 
@@ -423,7 +542,7 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
                 slider.max = totalFrames - 1;
                 slider.value = 0;
 
-                calculateGlobalBounds(varSelect.value);
+                calculateGlobalBounds(currentVariable);
                 renderFrame();
             } catch (err) {
                 console.error("Error fetching or constructing the grid layout data:", err);
@@ -453,11 +572,16 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
             loadLocationData(e.target.value);
         });
 
-        varSelect.addEventListener('change', (e) => {
-            if (currentDataset) {
-                calculateGlobalBounds(e.target.value);
-                renderFrame();
-            }
+        document.querySelectorAll('.sidebar-left .var-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.sidebar-left .var-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                currentVariable = e.target.getAttribute('data-var');
+                if (currentDataset) {
+                    calculateGlobalBounds(currentVariable);
+                    renderFrame();
+                }
+            });
         });
 
         slider.addEventListener('input', (e) => {
@@ -468,11 +592,30 @@ Because HTML5 Canvas `putImageData()` does not respect scaling by default, the s
 
         playBtn.addEventListener('click', togglePlayback);
 
+        toggleFreezeBtn.addEventListener('click', () => {
+            isMapFrozen = !isMapFrozen;
+            applyMapState();
+        });
+
         window.addEventListener('DOMContentLoaded', () => {
+            // Initialize Leaflet Map
+            map = L.map('map', {
+                zoomSnap: 0.5,    // Allows the map to snap to half-zoom levels (e.g., 13.5)
+                zoomDelta: 0.5    // Clicking the +/- buttons will zoom by 0.5 increments
+            }).setView([22.5, 87.5], 10);
+            
+            // Use OpenStreetMap as the open-source basemap
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 18,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // Update map details actively if map bounds or zoom level shift
+            map.on('moveend', updateMapInfo);
+            map.on('zoomend', updateMapInfo);
+
             loadLocationData(locationSelect.value);
         });
     </script>
 </body>
 </html>
-
-```
